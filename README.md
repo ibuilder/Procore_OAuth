@@ -60,7 +60,7 @@ A comprehensive web application for interacting with the Procore API through OAu
 ### Installation
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/procore-oauth-client.git
+   git clone https://github.com/ibuilder/Procore_OAuth.git
    ```
 2. Navigate to the project directory:
    ```

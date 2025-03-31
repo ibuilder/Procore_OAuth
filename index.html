@@ -1,1197 +1,4 @@
-const createSampleProjectBtn = document.getElementById('create-sample-project');
-            
-            // Create sample project button
-            createSampleProjectBtn.addEventListener('click', function() {
-                // Populate form with sample data
-                document.getElementById('project-name').value = `Sample Project ${new Date().toLocaleDateString()}`;
-                document.getElementById('project-address').value = '123 Construction Way';
-                document.getElementById('project-city').value = 'San Francisco';
-                document.getElementById('project-state').value = 'CA';
-                document.getElementById('project-zip').value = '94105';
-                document.getElementById('project-country').value = 'US';
-                
-                // Set start date to today
-                const today = new Date();
-                const todayFormatted = today.toISOString().split('T')[0];
-                document.getElementById('project-start-date').value = todayFormatted;
-                
-                // Set end date to 6 months from now
-                const endDate = new Date();
-                endDate.setMonth(endDate.getMonth() + 6);
-                const endDateFormatted = endDate.toISOString().split('T')[0];
-                document.getElementById('project-end-date').value = endDateFormatted;
-                
-                // Set description
-                document.getElementById('project-description').value = 'This is a sample project created using the Procore OAuth Client.';
-            });            // Create a webhook
-            async function createWebhook() {
-                const name = document.getElementById('webhook-name').value;
-                const url = document.getElementById('webhook-url').value;
-                
-                if (!name || !url) {
-                    webhookResult.innerHTML = '<div class="alert alert-danger">Name and URL are required.</div>';
-                    return;
-                }
-                
-                // Get selected resources
-                const resources = [];
-                ['project', 'task', 'file', 'user'].forEach(resource => {
-                    if (document.getElementById(`resource-${resource}`).checked) {
-                        resources.push(resource);
-                    }
-                });
-                
-                // Get selected events
-                const events = [];
-                ['create', 'update', 'delete'].forEach(event => {
-                    if (document.getElementById(`event-${event}`).checked) {
-                        events.push(event);
-                    }
-                });
-                
-                if (resources.length === 0 || events.length === 0) {
-                    webhookResult.innerHTML = '<div class="alert alert-danger">Please select at least one resource and one event.</div>';
-                    return;
-                }
-                
-                // Prepare webhook data
-                const webhookData = {
-                    webhook: {
-                        name: name,
-                        url: url,
-                        events: events.map(event => {
-                            return resources.map(resource => `${resource}.${event}`);
-                        }).flat()
-                    }
-                };
-                
-                const result = await apiRequest('/rest/v1.0/webhooks', {
-                    method: 'POST',
-                    body: JSON.stringify(webhookData)
-                });
-                
-                if (result) {
-                    webhookResult.innerHTML = `
-                        <div class="alert alert-success">
-                            Webhook "${result.name}" created successfully with ID: ${result.id}
-                        </div>
-                    `;
-                    
-                    // Reset form
-                    createWebhookForm.reset();
-                    
-                    // Refresh webhooks list
-                    await fetchWebhooks();
-                } else {
-                    webhookResult.innerHTML = `
-                        <div class="alert alert-danger">
-                            Failed to create webhook. Please check your inputs and try again.
-                        </div>
-                    `;
-                }
-            }
-            
-            // Fetch webhooks
-            async function fetchWebhooks() {
-                const webhooks = await apiRequest('/rest/v1.0/webhooks');
-                if (!webhooks) return;
-                
-                webhooksList.innerHTML = '';
-                webhookSelect.innerHTML = '<option value="">Choose webhook...</option>';
-                
-                if (webhooks.length === 0) {
-                    webhooksList.innerHTML = '<p class="mt-3">No webhooks found.</p>';
-                } else {
-                    webhooks.forEach(webhook => {
-                        // Add to webhooks list
-                        const item = document.createElement('div');
-                        item.className = 'list-group-item';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">${webhook.name}</h6>
-                                    <p class="mb-1 small text-truncate">${webhook.url}</p>
-                                    <small>${webhook.events.join(', ')}</small>
-                                </div>
-                                <div>
-                                    <button class="btn btn-sm btn-danger delete-webhook" data-id="${webhook.id}">Delete</button>
-                                </div>
-                            </div>
-                        `;
-                        webhooksList.appendChild(item);
-                        
-                        // Add event listener for delete button
-                        const deleteBtn = item.querySelector('.delete-webhook');
-                        deleteBtn.addEventListener('click', () => deleteWebhook(webhook.id));
-                        
-                        // Add to webhook select dropdown
-                        const option = document.createElement('option');
-                        option.value = webhook.id;
-                        option.textContent = webhook.name;
-                        webhookSelect.appendChild(option);
-                    });
-                }
-            }
-            
-            // Delete webhook
-            async function deleteWebhook(id) {
-                if (!confirm('Are you sure you want to delete this webhook?')) {
-                    return;
-                }
-                
-                const result = await apiRequest(`/rest/v1.0/webhooks/${id}`, {
-                    method: 'DELETE'
-                });
-                
-                if (result !== null) {
-                    // Refresh webhooks list
-                    await fetchWebhooks();
-                }
-            }
-            
-            // Simulate webhook event
-            async function simulateWebhookEvent() {
-                const webhookId = webhookSelect.value;
-                if (!webhookId) {
-                    simulationResult.innerHTML = '<div class="alert alert-danger">Please select a webhook to test.</div>';
-                    return;
-                }
-                
-                const eventType = document.getElementById('event-type').value;
-                const resourceType = document.getElementById('resource-type').value;
-                let payloadData = document.getElementById('payload-data').value;
-                
-                try {
-                    // Parse custom payload if provided, or use default
-                    let payload = {};
-                    if (payloadData) {
-                        payload = JSON.parse(payloadData);
-                    } else {
-                        // Create a default payload based on resource type
-                        payload = {
-                            id: Math.floor(Math.random() * 10000),
-                            name: `Test ${resourceType}`,
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString()
-                        };
-                    }
-                    
-                    const simulationData = {
-                        event_type: `${resourceType}.${eventType}`,
-                        resource_id: payload.id,
-                        payload: payload
-                    };
-                    
-                    const result = await apiRequest(`/rest/v1.0/webhooks/${webhookId}/test`, {
-                        method: 'POST',
-                        body: JSON.stringify(simulationData)
-                    });
-                    
-                    if (result) {
-                        simulationResult.innerHTML = `
-                            <div class="alert alert-success">
-                                Webhook event simulated successfully! Check your endpoint for the delivered payload.
-                            </div>
-                        `;
-                    } else {
-                        simulationResult.innerHTML = `
-                            <div class="alert alert-danger">
-                                Failed to simulate webhook event. Please check your inputs and try again.
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    simulationResult.innerHTML = `
-                        <div class="alert alert-danger">
-                            Error: ${error.message}
-                        </div>
-                    `;
-                }
-            }
-            
-            // Save settings
-            function saveSettings() {
-                const clientId = document.getElementById('settings-client-id').value;
-                const clientSecret = document.getElementById('settings-client-secret').value;
-                const redirectUri = document.getElementById('settings-redirect-uri').value;
-                const environment = document.querySelector('input[name="settings-environment"]:checked')?.value;
-                
-                if (!clientId || !clientSecret || !redirectUri || !environment) {
-                    showError('Please fill in all required settings fields.');
-                    return;
-                }
-                
-                // Save config
-                oauthConfig = {
-                    clientId,
-                    clientSecret,
-                    redirectUri,
-                    environment
-                };
-                
-                localStorage.setItem('procoreConfig', JSON.stringify(oauthConfig));
-                
-                // Show success message
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert alert-success mt-3';
-                alertDiv.textContent = 'Settings saved successfully!';
-                settingsForm.appendChild(alertDiv);
-                
-                // Remove message after 3 seconds
-                setTimeout(() => {
-                    alertDiv.remove();
-                }, 3000);
-            }
-            
-            // Save preferences
-            function savePreferences() {
-                appPreferences = {
-                    autoRefresh: parseInt(document.getElementById('auto-refresh').value) || 30,
-                    showIds: document.getElementById('show-ids').checked,
-                    autoLoadDashboard: document.getElementById('auto-load-dashboard').checked,
-                    rememberLastProject: document.getElementById('remember-last-project').checked,
-                    dateFormat: document.getElementById('date-format').value
-                };
-                
-                localStorage.setItem('procorePreferences', JSON.stringify(appPreferences));
-                
-                // Show success message
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert alert-success mt-3';
-                alertDiv.textContent = 'Preferences saved successfully!';
-                preferencesForm.appendChild(alertDiv);
-                
-                // Remove message after 3 seconds
-                setTimeout(() => {
-                    alertDiv.remove();
-                }, 3000);
-                
-                // Apply preferences
-                applyPreferences();
-            }
-            
-            // Apply preferences to UI
-            function applyPreferences() {
-                // Apply showIds preference
-                document.querySelectorAll('.list-group-item small').forEach(el => {
-                    if (el.textContent.startsWith('ID:')) {
-                        el.style.display = appPreferences.showIds ? 'inline' : 'none';
-                    }
-                });
-                
-                // Set up auto-refresh if enabled
-                if (tokenData?.accessToken && appPreferences.autoRefresh > 0) {
-                    // Clear any existing auto-refresh timer
-                    if (window.autoRefreshTimer) {
-                        clearInterval(window.autoRefreshTimer);
-                    }
-                    
-                    // Set new timer
-                    window.autoRefreshTimer = setInterval(() => {
-                        // Only refresh if token is getting close to expiry
-                        const timeRemaining = tokenData.expiresAt - Date.now();
-                        const refreshThreshold = 5 * 60 * 1000; // 5 minutes in milliseconds
-                        
-                        if (timeRemaining < refreshThreshold) {
-                            refreshAccessToken();
-                            console.log('Token auto-refreshed');
-                        }
-                    }, appPreferences.autoRefresh * 60 * 1000);
-                }
-            }
-            
-            // Clear all stored data
-            function clearAllStorage() {
-                if (confirm('Are you sure you want to clear all stored data? This will log you out.')) {
-                    localStorage.removeItem('procoreTokens');
-                    localStorage.removeItem('procoreConfig');
-                    localStorage.removeItem('procorePreferences');
-                    
-                    // Reload the page
-                    window.location.reload();
-                }
-            }
-            
-            // Export settings
-            function exportSettings() {
-                const exportData = {
-                    config: JSON.parse(localStorage.getItem('procoreConfig') || '{}'),
-                    preferences: JSON.parse(localStorage.getItem('procorePreferences') || '{}')
-                };
-                
-                // Create a blob and download link
-                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'procore_app_settings.json';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }
-            
-            // Test API connection
-            async function testApiConnection() {
-                const result = await apiRequest('/rest/v1.0/me');
-                
-                if (result) {
-                    const alertDiv = document.createElement('div');
-                    alertDiv.className = 'alert alert-success mt-3';
-                    alertDiv.innerHTML = `
-                        <strong>Connection successful!</strong><br>
-                        Connected as: ${result.name} (${result.email})<br>
-                        User ID: ${result.id}
-                    `;
-                    
-                    // Append after the test button
-                    testConnectionBtn.parentNode.appendChild(alertDiv);
-                    
-                    // Remove message after a few seconds
-                    setTimeout(() => {
-                        alertDiv.remove();
-                    }, 5000);
-                }
-            }
-            
-            // Initialize settings form with current config
-            function initializeSettingsForm() {
-                document.getElementById('settings-client-id').value = oauthConfig.clientId || '';
-                document.getElementById('settings-client-secret').value = oauthConfig.clientSecret || '';
-                document.getElementById('settings-redirect-uri').value = oauthConfig.redirectUri || '';
-                
-                if (oauthConfig.environment === 'production') {
-                    document.getElementById('settings-production').checked = true;
-                } else {
-                    document.getElementById('settings-sandbox').checked = true;
-                }
-            }
-            
-            // Initialize preferences form with current preferences
-            function initializePreferencesForm() {
-                document.getElementById('auto-refresh').value = appPreferences.autoRefresh;
-                document.getElementById('show-ids').checked = appPreferences.showIds;
-                document.getElementById('auto-load-dashboard').checked = appPreferences.autoLoadDashboard;
-                document.getElementById('remember-last-project').checked = appPreferences.rememberLastProject;
-                document.getElementById('date-format').value = appPreferences.dateFormat;
-            }
-            
-            // Format date according to preferences
-            function formatDate(dateStr) {
-                if (!dateStr) return '';
-                
-                const date = new Date(dateStr);
-                const format = appPreferences.dateFormat;
-                
-                const day = date.getDate().toString().padStart(2, '0');
-                const month = (date.getMonth() + 1).toString().padStart(2, '0');
-                const year = date.getFullYear();
-                
-                switch (format) {
-                    case 'MM/DD/YYYY':
-                        return `${month}/${day}/${year}`;
-                    case 'DD/MM/YYYY':
-                        return `${day}/${month}/${year}`;
-                    case 'YYYY-MM-DD':
-                        return `${year}-${month}-${day}`;
-                    default:
-                        return dateStr;
-                }
-            }
-            
-            // Remember last selected project if preference is enabled
-            function rememberProject(projectId) {
-                if (appPreferences.rememberLastProject && projectId) {
-                    localStorage.setItem('lastProjectId', projectId);
-                }
-            }
-            
-            // Load last selected project if preference is enabled
-            function loadLastProject() {
-                if (appPreferences.rememberLastProject) {
-                    const lastProjectId = localStorage.getItem('lastProjectId');
-                    if (lastProjectId) {
-                        projectSelect.value = lastProjectId;
-                        fileProjectSelect.value = lastProjectId;
-                        // Enable buttons
-                        fetchTasksBtn.disabled = false;
-                        fetchFilesBtn.disabled = false;
-                        uploadFileBtn.disabled = false;
-                    }
-                }
-            }
-            
-            // Load default view when authorized
-            function loadDefaultView() {
-                if (appPreferences.autoLoadDashboard) {
-                    // Programmatically click on dashboard tab
-                    document.getElementById('dashboard-tab').click();
-                    // Load dashboard data
-                    updateDashboard();
-                }
-            }            // Load stored preferences
-            let appPreferences = JSON.parse(localStorage.getItem('procorePreferences')) || {
-                autoRefresh: 30,
-                showIds: true,
-                autoLoadDashboard: true,
-                rememberLastProject: false,
-                dateFormat: 'MM/DD/YYYY'
-            };
-            
-            // Create webhook form submission
-            createWebhookForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                await createWebhook();
-            });
-            
-            // Simulate webhook form submission
-            simulateWebhookForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                await simulateWebhookEvent();
-            });
-            
-            // Fetch webhooks button
-            fetchWebhooksBtn.addEventListener('click', fetchWebhooks);
-            
-            // Settings form submission
-            settingsForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                saveSettings();
-            });
-            
-            // Preferences form submission
-            preferencesForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                savePreferences();
-            });
-            
-            // Advanced buttons
-            clearStorageBtn.addEventListener('click', clearAllStorage);
-            exportSettingsBtn.addEventListener('click', exportSettings);
-            testConnectionBtn.addEventListener('click', testApiConnection);            const createWebhookForm = document.getElementById('create-webhook-form');
-            const simulateWebhookForm = document.getElementById('simulate-webhook-form');
-            const webhookResult = document.getElementById('webhook-result');
-            const webhooksList = document.getElementById('webhooks-list');
-            const webhookSelect = document.getElementById('webhook-select');
-            const simulationResult = document.getElementById('simulation-result');
-            const fetchWebhooksBtn = document.getElementById('fetch-webhooks');
-            const settingsForm = document.getElementById('settings-form');
-            const preferencesForm = document.getElementById('preferences-form');
-            const clearStorageBtn = document.getElementById('clear-storage');
-            const exportSettingsBtn = document.getElementById('export-settings');
-            const testConnectionBtn = document.getElementById('test-connection');                        <div class="tab-pane fade" id="webhooks" role="tabpanel" aria-labelledby="webhooks-tab">
-                            <div class="my-3">
-                                <h5>Manage Procore Webhooks</h5>
-                                
-                                <div class="row mt-4">
-                                    <div class="col-md-6">
-                                        <div class="card mb-4">
-                                            <div class="card-header">
-                                                <h6>Create Webhook</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <form id="create-webhook-form">
-                                                    <div class="mb-3">
-                                                        <label for="webhook-name" class="form-label">Webhook Name*</label>
-                                                        <input type="text" class="form-control" id="webhook-name" placeholder="Enter webhook name" required>
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label for="webhook-url" class="form-label">Callback URL*</label>
-                                                        <input type="url" class="form-control" id="webhook-url" placeholder="https://your-callback-url.com/endpoint" required>
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label class="form-label">Resources to Monitor*</label>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="project" id="resource-project">
-                                                            <label class="form-check-label" for="resource-project">Projects</label>
-                                                        </div>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="task" id="resource-task">
-                                                            <label class="form-check-label" for="resource-task">Tasks</label>
-                                                        </div>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="file" id="resource-file">
-                                                            <label class="form-check-label" for="resource-file">Files</label>
-                                                        </div>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="user" id="resource-user">
-                                                            <label class="form-check-label" for="resource-user">Users</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label class="form-label">Events to Monitor*</label>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="create" id="event-create">
-                                                            <label class="form-check-label" for="event-create">Create</label>
-                                                        </div>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="update" id="event-update">
-                                                            <label class="form-check-label" for="event-update">Update</label>
-                                                        </div>
-                                                        <div class="form-check">
-                                                            <input class="form-check-input" type="checkbox" value="delete" id="event-delete">
-                                                            <label class="form-check-label" for="event-delete">Delete</label>
-                                                        </div>
-                                                    </div>
-                                                    <button type="submit" class="btn btn-primary">Create Webhook</button>
-                                                </form>
-                                                <div id="webhook-result" class="mt-3"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="card">
-                                            <div class="card-header d-flex justify-content-between align-items-center">
-                                                <h6 class="mb-0">Active Webhooks</h6>
-                                                <button id="fetch-webhooks" class="btn btn-sm btn-outline-primary">Refresh</button>
-                                            </div>
-                                            <div class="card-body">
-                                                <div id="webhooks-list" class="list-group">
-                                                    <p class="text-muted">Click Refresh to load webhooks...</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="card mt-4">
-                                    <div class="card-header">
-                                        <h6>Webhook Event Simulator</h6>
-                                    </div>
-                                    <div class="card-body">
-                                        <p>Test your webhook endpoints by simulating Procore events.</p>
-                                        
-                                        <form id="simulate-webhook-form" class="row g-3">
-                                            <div class="col-md-4">
-                                                <label for="webhook-select" class="form-label">Select Webhook</label>
-                                                <select id="webhook-select" class="form-select">
-                                                    <option value="">Choose webhook...</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label for="event-type" class="form-label">Event Type</label>
-                                                <select id="event-type" class="form-select">
-                                                    <option value="create">Create</option>
-                                                    <option value="update">Update</option>
-                                                    <option value="delete">Delete</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label for="resource-type" class="form-label">Resource Type</label>
-                                                <select id="resource-type" class="form-select">
-                                                    <option value="project">Project</option>
-                                                    <option value="task">Task</option>
-                                                    <option value="file">File</option>
-                                                    <option value="user">User</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-12">
-                                                <label for="payload-data" class="form-label">Custom Payload (optional)</label>
-                                                <textarea id="payload-data" class="form-control" rows="3" placeholder='{"id": 123, "name": "Example", ...}'></textarea>
-                                            </div>
-                                            <div class="col-12">
-                                                <button type="submit" class="btn btn-warning">Simulate Event</button>
-                                            </div>
-                                        </form>
-                                        <div id="simulation-result" class="mt-3"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="tab-pane fade" id="settings" role="tabpanel" aria-labelledby="settings-tab">
-                            <div class="my-3">
-                                <h5>Application Settings</h5>
-                                
-                                <div class="row mt-4">
-                                    <div class="col-md-6">
-                                        <div class="card mb-4">
-                                            <div class="card-header">
-                                                <h6>OAuth Configuration</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <form id="settings-form">
-                                                    <div class="mb-3">
-                                                        <label for="settings-client-id" class="form-label">Client ID</label>
-                                                        <input type="text" class="form-control" id="settings-client-id">
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label for="settings-client-secret" class="form-label">Client Secret</label>
-                                                        <input type="password" class="form-control" id="settings-client-secret">
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label for="settings-redirect-uri" class="form-label">Redirect URI</label>
-                                                        <input type="text" class="form-control" id="settings-redirect-uri">
-                                                    </div>
-                                                    <div class="form-check mb-3">
-                                                        <input class="form-check-input" type="radio" name="settings-environment" id="settings-sandbox" value="sandbox">
-                                                        <label class="form-check-label" for="settings-sandbox">
-                                                            Sandbox
-                                                        </label>
-                                                    </div>
-                                                    <div class="form-check mb-3">
-                                                        <input class="form-check-input" type="radio" name="settings-environment" id="settings-production" value="production">
-                                                        <label class="form-check-label" for="settings-production">
-                                                            Production
-                                                        </label>
-                                                    </div>
-                                                    <button type="submit" class="btn btn-primary">Save Settings</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="card mb-4">
-                                            <div class="card-header">
-                                                <h6>Application Preferences</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <form id="preferences-form">
-                                                    <div class="mb-3">
-                                                        <label for="auto-refresh" class="form-label">Token Auto-Refresh Interval (minutes)</label>
-                                                        <input type="number" class="form-control" id="auto-refresh" min="5" max="50" value="30">
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label class="form-label">Data Display Options</label>
-                                                        <div class="form-check form-switch">
-                                                            <input class="form-check-input" type="checkbox" id="show-ids" checked>
-                                                            <label class="form-check-label" for="show-ids">Show IDs in Lists</label>
-                                                        </div>
-                                                        <div class="form-check form-switch">
-                                                            <input class="form-check-input" type="checkbox" id="auto-load-dashboard" checked>
-                                                            <label class="form-check-label" for="auto-load-dashboard">Auto-load Dashboard</label>
-                                                        </div>
-                                                        <div class="form-check form-switch">
-                                                            <input class="form-check-input" type="checkbox" id="remember-last-project">
-                                                            <label class="form-check-label" for="remember-last-project">Remember Last Selected Project</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mb-3">
-                                                        <label for="date-format" class="form-label">Date Format</label>
-                                                        <select class="form-select" id="date-format">
-                                                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                                                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                                                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                                                        </select>
-                                                    </div>
-                                                    <button type="submit" class="btn btn-primary">Save Preferences</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="card">
-                                            <div class="card-header">
-                                                <h6>Advanced Options</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <div class="d-grid gap-2">
-                                                    <button id="clear-storage" class="btn btn-outline-danger">Clear All Stored Data</button>
-                                                    <button id="export-settings" class="btn btn-outline-secondary">Export Settings</button>
-                                                    <button id="test-connection" class="btn btn-outline-primary">Test API Connection</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>            // Create a new project
-            async function createProject() {
-                const projectName = document.getElementById('project-name').value;
-                if (!projectName) {
-                    showError('Project name is required');
-                    return;
-                }
-                
-                const projectData = {
-                    project: {
-                        name: projectName,
-                        address: document.getElementById('project-address').value,
-                        city: document.getElementById('project-city').value,
-                        state_code: document.getElementById('project-state').value,
-                        zip: document.getElementById('project-zip').value,
-                        country_code: document.getElementById('project-country').value,
-                        start_date: document.getElementById('project-start-date').value || null,
-                        finish_date: document.getElementById('project-end-date').value || null,
-                        description: document.getElementById('project-description').value
-                    }
-                };
-                
-                const result = await apiRequest('/rest/v1.0/projects', {
-                    method: 'POST',
-                    body: JSON.stringify(projectData)
-                });
-                
-                if (result) {
-                    createResult.innerHTML = `
-                        <div class="alert alert-success">
-                            Project "${result.name}" created successfully with ID: ${result.id}
-                        </div>
-                    `;
-                    
-                    // Reset form
-                    createProjectForm.reset();
-                    
-                    // Refresh project list
-                    await fetchProjects();
-                } else {
-                    createResult.innerHTML = `
-                        <div class="alert alert-danger">
-                            Failed to create project. Please check your inputs and try again.
-                        </div>
-                    `;
-                }
-            }
-            
-            // Fetch files for a project
-            async function fetchFiles() {
-                const projectId = fileProjectSelect.value;
-                if (!projectId) {
-                    showError('Please select a project first');
-                    return;
-                }
-                
-                rememberProject(projectId);
-                
-                const files = await apiRequest(`/rest/v1.0/projects/${projectId}/files`);
-                if (!files) return;
-                
-                filesList.innerHTML = '';
-                if (files.length === 0) {
-                    filesList.innerHTML = '<p class="mt-3">No files found for this project.</p>';
-                } else {
-                    files.forEach(file => {
-                        const item = document.createElement('div');
-                        item.className = 'list-group-item';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between align-items-center">
-                                <div>
-                                    <h5 class="mb-1">${file.name || 'Unnamed File'}</h5>
-                                    <p class="mb-1">${file.description || 'No description'}</p>
-                                    <small>Uploaded: ${formatDate(file.created_at)}</small>
-                                    <small ${!appPreferences.showIds ? 'style="display:none"' : ''} class="ms-3">ID: ${file.id}</small>
-                                </div>
-                                <div>
-                                    <a href="${file.url}" target="_blank" class="btn btn-sm btn-primary">Download</a>
-                                </div>
-                            </div>
-                        `;
-                        filesList.appendChild(item);
-                    });
-                }
-            }
-            
-            // Upload a file to a project
-            async function uploadFile() {
-                const projectId = fileProjectSelect.value;
-                if (!projectId) {
-                    showError('Please select a project first');
-                    return;
-                }
-                
-                const fileInput = document.getElementById('file-upload');
-                if (!fileInput.files || fileInput.files.length === 0) {
-                    showError('Please select a file to upload');
-                    return;
-                }
-                
-                const file = fileInput.files[0];
-                const description = document.getElementById('file-description').value;
-                
-                // Create FormData for file upload
-                const formData = new FormData();
-                formData.append('file[name]', file.name);
-                formData.append('file[description]', description);
-                formData.append('file[data]', file);
-                
-                loadingSection.classList.remove('hidden');
-                
-                try {
-                    // Check if token has expired
-                    if (tokenData.expiresAt && Date.now() > tokenData.expiresAt) {
-                        await refreshAccessToken();
-                    }
-                    
-                    const url = `${getBaseUrl()}/rest/v1.0/projects/${projectId}/files`;
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${tokenData.accessToken}`
-                        },
-                        body: formData
-                    });
-                    
-                    if (!response.ok) {
-                        if (response.status === 401) {
-                            await refreshAccessToken();
-                            return uploadFile();
-                        }
-                        throw new Error(`API request failed with status ${response.status}`);
-                    }
-                    
-                    const result = await response.json();
-                    
-                    uploadResult.innerHTML = `
-                        <div class="alert alert-success">
-                            File "${file.name}" uploaded successfully!
-                        </div>
-                    `;
-                    
-                    // Reset form
-                    uploadFileForm.reset();
-                    
-                    // Refresh file list
-                    await fetchFiles();
-                } catch (error) {
-                    uploadResult.innerHTML = `
-                        <div class="alert alert-danger">
-                            Upload failed: ${error.message}
-                        </div>
-                    `;
-                } finally {
-                    loadingSection.classList.add('hidden');
-                }
-            }
-            
-            // Dashboard functions
-            let statusChart = null;
-            let timelineChart = null;
-            
-            // Update dashboard with data
-            async function updateDashboard() {
-                loadingSection.classList.remove('hidden');
-                
-                try {
-                    // Fetch required data
-                    const projects = await apiRequest('/rest/v1.0/projects');
-                    const users = await apiRequest('/rest/v1.0/users');
-                    
-                    if (!projects || !users) return;
-                    
-                    // Update statistics tiles
-                    document.getElementById('total-projects').textContent = projects.length;
-                    document.getElementById('total-users').textContent = users.length;
-                    
-                    const activeProjects = projects.filter(p => p.status === 'active');
-                    document.getElementById('active-projects').textContent = activeProjects.length;
-                    
-                    // Collect total tasks (this is a simple approximation - in a real app you'd use a proper API endpoint)
-                    let totalTasks = 0;
-                    for (const project of projects.slice(0, 3)) { // Limit to avoid too many requests
-                        const tasks = await apiRequest(`/rest/v1.0/projects/${project.id}/tasks`);
-                        if (tasks) {
-                            totalTasks += tasks.length;
-                        }
-                    }
-                    document.getElementById('total-tasks').textContent = totalTasks;
-                    
-                    // Create status chart
-                    createStatusChart(projects);
-                    
-                    // Create timeline chart
-                    createTimelineChart(projects);
-                    
-                } catch (error) {
-                    showError(`Dashboard update failed: ${error.message}`);
-                } finally {
-                    loadingSection.classList.add('hidden');
-                }
-            }
-            
-            // Create project status distribution chart
-            function createStatusChart(projects) {
-                // Count projects by status
-                const statusCounts = {};
-                
-                projects.forEach(project => {
-                    const status = project.status || 'unknown';
-                    statusCounts[status] = (statusCounts[status] || 0) + 1;
-                });
-                
-                const labels = Object.keys(statusCounts);
-                const data = Object.values(statusCounts);
-                
-                // Define colors for each status
-                const colors = [
-                    '#4CAF50', // active
-                    '#FF9800', // pending
-                    '#2196F3', // planning
-                    '#F44336', // closed
-                    '#9C27B0', // other statuses
-                    '#795548',
-                    '#607D8B'
-                ];
-                
-                const ctx = document.getElementById('status-chart').getContext('2d');
-                
-                // Destroy existing chart if it exists
-                if (statusChart) {
-                    statusChart.destroy();
-                }
-                
-                // Create new chart
-                statusChart = new Chart(ctx, {
-                    type: 'pie',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            data: data,
-                            backgroundColor: colors.slice(0, labels.length),
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: {
-                                position: 'right',
-                            },
-                            title: {
-                                display: true,
-                                text: 'Project Status Distribution'
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Create projects timeline chart
-            function createTimelineChart(projects) {
-                // Filter projects with start and end dates
-                const projectsWithDates = projects.filter(p => p.start_date && p.finish_date).slice(0, 10);
-                
-                // Sort by start date
-                projectsWithDates.sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
-                
-                const labels = projectsWithDates.map(p => p.name);
-                const startDates = projectsWithDates.map(p => new Date(p.start_date));
-                const durations = projectsWithDates.map(p => {
-                    const start = new Date(p.start_date);
-                    const end = new Date(p.finish_date);
-                    return Math.ceil((end - start) / (1000 * 60 * 60 * 24)); // days
-                });
-                
-                const ctx = document.getElementById('timeline-chart').getContext('2d');
-                
-                // Destroy existing chart if it exists
-                if (timelineChart) {
-                    timelineChart.destroy();
-                }
-                
-                // Create new chart
-                timelineChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Project Duration (days)',
-                            data: durations,
-                            backgroundColor: '#f47e42',
-                            borderColor: '#e05c12',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        indexAxis: 'y',
-                        responsive: true,
-                        plugins: {
-                            legend: {
-                                position: 'top',
-                            },
-                            title: {
-                                display: true,
-                                text: 'Project Timelines'
-                            }
-                        }
-                    }
-                });
-            }            const fileProjectSelect = document.getElementById('file-project-select');
-            const fetchFilesBtn = document.getElementById('fetch-files');
-            const uploadFileBtn = document.getElementById('upload-file-btn');
-            const filesList = document.getElementById('files-list');
-            const createProjectForm = document.getElementById('create-project-form');
-            const createResult = document.getElementById('create-result');
-            const uploadFileForm = document.getElementById('upload-file-form');
-            const uploadResult = document.getElementById('upload-result');
-            const refreshDashboardBtn = document.getElementById('refresh-dashboard');                        <div class="tab-pane fade" id="create" role="tabpanel" aria-labelledby="create-tab">
-                            <div class="my-3">
-                                <h5>Create New Project</h5>
-                                <form id="create-project-form" class="mt-3">
-                                    <div class="mb-3">
-                                        <label for="project-name" class="form-label">Project Name*</label>
-                                        <input type="text" class="form-control" id="project-name" placeholder="Enter project name" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="project-address" class="form-label">Address</label>
-                                        <input type="text" class="form-control" id="project-address" placeholder="Project address">
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label for="project-city" class="form-label">City</label>
-                                            <input type="text" class="form-control" id="project-city" placeholder="City">
-                                        </div>
-                                        <div class="col-md-3 mb-3">
-                                            <label for="project-state" class="form-label">State</label>
-                                            <input type="text" class="form-control" id="project-state" placeholder="State/Province">
-                                        </div>
-                                        <div class="col-md-3 mb-3">
-                                            <label for="project-zip" class="form-label">Zip/Postal Code</label>
-                                            <input type="text" class="form-control" id="project-zip" placeholder="Zip/Postal Code">
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="project-country" class="form-label">Country</label>
-                                        <select class="form-select" id="project-country">
-                                            <option value="US">United States</option>
-                                            <option value="CA">Canada</option>
-                                            <option value="MX">Mexico</option>
-                                            <option value="GB">United Kingdom</option>
-                                            <option value="AU">Australia</option>
-                                            <option value="FR">France</option>
-                                            <option value="DE">Germany</option>
-                                            <option value="ES">Spain</option>
-                                            <option value="IT">Italy</option>
-                                            <option value="JP">Japan</option>
-                                        </select>
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label for="project-start-date" class="form-label">Start Date</label>
-                                            <input type="date" class="form-control" id="project-start-date">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="project-end-date" class="form-label">End Date</label>
-                                            <input type="date" class="form-control" id="project-end-date">
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="project-description" class="form-label">Description</label>
-                                        <textarea class="form-control" id="project-description" rows="3" placeholder="Project description"></textarea>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary">Create Project</button>
-                                    <button type="button" id="create-sample-project" class="btn btn-outline-secondary">Create Sample Project</button>
-                                </form>
-                                <div id="create-result" class="mt-3"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="tab-pane fade" id="files" role="tabpanel" aria-labelledby="files-tab">
-                            <div class="my-3">
-                                <div class="row g-3 align-items-center mb-3">
-                                    <div class="col-auto">
-                                        <label for="file-project-select" class="col-form-label">Select Project:</label>
-                                    </div>
-                                    <div class="col-auto">
-                                        <select id="file-project-select" class="form-select">
-                                            <option selected value="">Choose a project...</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-auto">
-                                        <button id="fetch-files" class="btn btn-primary" disabled>Fetch Files</button>
-                                    </div>
-                                </div>
-                                
-                                <div id="files-list" class="list-group mt-3"></div>
-                                
-                                <div class="card mt-4">
-                                    <div class="card-header">
-                                        <h5>Upload File</h5>
-                                    </div>
-                                    <div class="card-body">
-                                        <form id="upload-file-form">
-                                            <div class="mb-3">
-                                                <label for="file-upload" class="form-label">Select File</label>
-                                                <input class="form-control" type="file" id="file-upload">
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="file-description" class="form-label">Description</label>
-                                                <input type="text" class="form-control" id="file-description" placeholder="File description">
-                                            </div>
-                                            <button type="submit" id="upload-file-btn" class="btn btn-primary" disabled>Upload to Selected Project</button>
-                                        </form>
-                                        <div id="upload-result" class="mt-3"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="tab-pane fade" id="dashboard" role="tabpanel" aria-labelledby="dashboard-tab">
-                            <div class="my-3">
-                                <h5>Project Dashboard</h5>
-                                
-                                <div class="row mt-4">
-                                    <div class="col-md-6">
-                                        <div class="card mb-4">
-                                            <div class="card-header">
-                                                <h6>Project Status Distribution</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <canvas id="status-chart" width="400" height="250"></canvas>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="card mb-4">
-                                            <div class="card-header">
-                                                <h6>Projects Timeline</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <canvas id="timeline-chart" width="400" height="250"></canvas>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-md-12">
-                                        <div class="card">
-                                            <div class="card-header">
-                                                <h6>Project Statistics</h6>
-                                            </div>
-                                            <div class="card-body">
-                                                <div id="stats-container" class="row text-center">
-                                                    <div class="col-md-3 mb-3">
-                                                        <div class="card bg-primary text-white">
-                                                            <div class="card-body">
-                                                                <h2 id="total-projects">-</h2>
-                                                                <p class="mb-0">Total Projects</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-md-3 mb-3">
-                                                        <div class="card bg-success text-white">
-                                                            <div class="card-body">
-                                                                <h2 id="active-projects">-</h2>
-                                                                <p class="mb-0">Active Projects</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-md-3 mb-3">
-                                                        <div class="card bg-warning text-dark">
-                                                            <div class="card-body">
-                                                                <h2 id="total-tasks">-</h2>
-                                                                <p class="mb-0">Total Tasks</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-md-3 mb-3">
-                                                        <div class="card bg-info text-dark">
-                                                            <div class="card-body">
-                                                                <h2 id="total-users">-</h2>
-                                                                <p class="mb-0">Total Users</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="text-center mt-4">
-                                    <button id="refresh-dashboard" class="btn btn-primary">Refresh Dashboard</button>
-                                </div>
-                            </div>
-                        </div><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1200,36 +7,7 @@ const createSampleProjectBtn = document.getElementById('create-sample-project');
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23f47e42'/%3E%3Cpath d='M30 30 L70 30 L70 45 L55 45 L55 70 L45 70 L45 45 L30 45 Z' fill='white'/%3E%3C/svg%3E" type="image/svg+xml">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chart.js/3.9.1/chart.min.js"></script>
-    <style>
-        .container {
-            max-width: 800px;
-            margin-top: 50px;
-        }
-        .hidden {
-            display: none;
-        }
-        .card {
-            margin-bottom: 20px;
-        }
-        pre {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-        }
-        .loader {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #0d6efd;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 2s linear infinite;
-            margin: 20px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+    <link href="css/styles.css" rel="stylesheet">
 </head>
 <body>
     <div class="container">
@@ -1355,6 +133,399 @@ const createSampleProjectBtn = document.getElementById('create-sample-project');
                             </div>
                             <div id="tasks-list" class="list-group mt-3"></div>
                         </div>
+                        <div class="tab-pane fade" id="create" role="tabpanel" aria-labelledby="create-tab">
+                            <div class="my-3">
+                                <h5>Create New Project</h5>
+                                <form id="create-project-form" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="project-name" class="form-label">Project Name*</label>
+                                        <input type="text" class="form-control" id="project-name" placeholder="Enter project name" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="project-address" class="form-label">Address</label>
+                                        <input type="text" class="form-control" id="project-address" placeholder="Project address">
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="project-city" class="form-label">City</label>
+                                            <input type="text" class="form-control" id="project-city" placeholder="City">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="project-state" class="form-label">State</label>
+                                            <input type="text" class="form-control" id="project-state" placeholder="State/Province">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="project-zip" class="form-label">Zip/Postal Code</label>
+                                            <input type="text" class="form-control" id="project-zip" placeholder="Zip/Postal Code">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="project-country" class="form-label">Country</label>
+                                        <select class="form-select" id="project-country">
+                                            <option value="US">United States</option>
+                                            <option value="CA">Canada</option>
+                                            <option value="MX">Mexico</option>
+                                            <option value="GB">United Kingdom</option>
+                                            <option value="AU">Australia</option>
+                                            <option value="FR">France</option>
+                                            <option value="DE">Germany</option>
+                                            <option value="ES">Spain</option>
+                                            <option value="IT">Italy</option>
+                                            <option value="JP">Japan</option>
+                                        </select>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="project-start-date" class="form-label">Start Date</label>
+                                            <input type="date" class="form-control" id="project-start-date">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="project-end-date" class="form-label">End Date</label>
+                                            <input type="date" class="form-control" id="project-end-date">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="project-description" class="form-label">Description</label>
+                                        <textarea class="form-control" id="project-description" rows="3" placeholder="Project description"></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Create Project</button>
+                                    <button type="button" id="create-sample-project" class="btn btn-outline-secondary">Create Sample Project</button>
+                                </form>
+                                <div id="create-result" class="mt-3"></div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="files" role="tabpanel" aria-labelledby="files-tab">
+                            <div class="my-3">
+                                <div class="row g-3 align-items-center mb-3">
+                                    <div class="col-auto">
+                                        <label for="file-project-select" class="col-form-label">Select Project:</label>
+                                    </div>
+                                    <div class="col-auto">
+                                        <select id="file-project-select" class="form-select">
+                                            <option selected value="">Choose a project...</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-auto">
+                                        <button id="fetch-files" class="btn btn-primary" disabled>Fetch Files</button>
+                                    </div>
+                                </div>
+                                
+                                <div id="files-list" class="list-group mt-3"></div>
+                                
+                                <div class="card mt-4">
+                                    <div class="card-header">
+                                        <h5>Upload File</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="upload-file-form">
+                                            <div class="mb-3">
+                                                <label for="file-upload" class="form-label">Select File</label>
+                                                <input class="form-control" type="file" id="file-upload">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="file-description" class="form-label">Description</label>
+                                                <input type="text" class="form-control" id="file-description" placeholder="File description">
+                                            </div>
+                                            <button type="submit" id="upload-file-btn" class="btn btn-primary" disabled>Upload to Selected Project</button>
+                                        </form>
+                                        <div id="upload-result" class="mt-3"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="dashboard" role="tabpanel" aria-labelledby="dashboard-tab">
+                            <div class="my-3">
+                                <h5>Project Dashboard</h5>
+                                
+                                <div class="row mt-4">
+                                    <div class="col-md-6">
+                                        <div class="card mb-4">
+                                            <div class="card-header">
+                                                <h6>Project Status Distribution</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <canvas id="status-chart" width="400" height="250"></canvas>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card mb-4">
+                                            <div class="card-header">
+                                                <h6>Projects Timeline</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <canvas id="timeline-chart" width="400" height="250"></canvas>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6>Project Statistics</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="stats-container" class="row text-center">
+                                                    <div class="col-md-3 mb-3">
+                                                        <div class="card bg-primary text-white">
+                                                            <div class="card-body">
+                                                                <h2 id="total-projects">-</h2>
+                                                                <p class="mb-0">Total Projects</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3 mb-3">
+                                                        <div class="card bg-success text-white">
+                                                            <div class="card-body">
+                                                                <h2 id="active-projects">-</h2>
+                                                                <p class="mb-0">Active Projects</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3 mb-3">
+                                                        <div class="card bg-warning text-dark">
+                                                            <div class="card-body">
+                                                                <h2 id="total-tasks">-</h2>
+                                                                <p class="mb-0">Total Tasks</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3 mb-3">
+                                                        <div class="card bg-info text-dark">
+                                                            <div class="card-body">
+                                                                <h2 id="total-users">-</h2>
+                                                                <p class="mb-0">Total Users</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="text-center mt-4">
+                                    <button id="refresh-dashboard" class="btn btn-primary">Refresh Dashboard</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="webhooks" role="tabpanel" aria-labelledby="webhooks-tab">
+                            <div class="my-3">
+                                <h5>Manage Procore Webhooks</h5>
+                                
+                                <div class="row mt-4">
+                                    <div class="col-md-6">
+                                        <div class="card mb-4">
+                                            <div class="card-header">
+                                                <h6>Create Webhook</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <form id="create-webhook-form">
+                                                    <div class="mb-3">
+                                                        <label for="webhook-name" class="form-label">Webhook Name*</label>
+                                                        <input type="text" class="form-control" id="webhook-name" placeholder="Enter webhook name" required>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="webhook-url" class="form-label">Callback URL*</label>
+                                                        <input type="url" class="form-control" id="webhook-url" placeholder="https://your-callback-url.com/endpoint" required>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Resources to Monitor*</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="project" id="resource-project">
+                                                            <label class="form-check-label" for="resource-project">Projects</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="task" id="resource-task">
+                                                            <label class="form-check-label" for="resource-task">Tasks</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="file" id="resource-file">
+                                                            <label class="form-check-label" for="resource-file">Files</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="user" id="resource-user">
+                                                            <label class="form-check-label" for="resource-user">Users</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Events to Monitor*</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="create" id="event-create">
+                                                            <label class="form-check-label" for="event-create">Create</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="update" id="event-update">
+                                                            <label class="form-check-label" for="event-update">Update</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" value="delete" id="event-delete">
+                                                            <label class="form-check-label" for="event-delete">Delete</label>
+                                                        </div>
+                                                    </div>
+                                                    <button type="submit" class="btn btn-primary">Create Webhook</button>
+                                                </form>
+                                                <div id="webhook-result" class="mt-3"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <h6 class="mb-0">Active Webhooks</h6>
+                                                <button id="fetch-webhooks" class="btn btn-sm btn-outline-primary">Refresh</button>
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="webhooks-list" class="list-group">
+                                                    <p class="text-muted">Click Refresh to load webhooks...</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card mt-4">
+                                    <div class="card-header">
+                                        <h6>Webhook Event Simulator</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <p>Test your webhook endpoints by simulating Procore events.</p>
+                                        
+                                        <form id="simulate-webhook-form" class="row g-3">
+                                            <div class="col-md-4">
+                                                <label for="webhook-select" class="form-label">Select Webhook</label>
+                                                <select id="webhook-select" class="form-select">
+                                                    <option value="">Choose webhook...</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="event-type" class="form-label">Event Type</label>
+                                                <select id="event-type" class="form-select">
+                                                    <option value="create">Create</option>
+                                                    <option value="update">Update</option>
+                                                    <option value="delete">Delete</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="resource-type" class="form-label">Resource Type</label>
+                                                <select id="resource-type" class="form-select">
+                                                    <option value="project">Project</option>
+                                                    <option value="task">Task</option>
+                                                    <option value="file">File</option>
+                                                    <option value="user">User</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-12">
+                                                <label for="payload-data" class="form-label">Custom Payload (optional)</label>
+                                                <textarea id="payload-data" class="form-control" rows="3" placeholder='{"id": 123, "name": "Example", ...}'></textarea>
+                                            </div>
+                                            <div class="col-12">
+                                                <button type="submit" class="btn btn-warning">Simulate Event</button>
+                                            </div>
+                                        </form>
+                                        <div id="simulation-result" class="mt-3"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="settings" role="tabpanel" aria-labelledby="settings-tab">
+                            <div class="my-3">
+                                <h5>Application Settings</h5>
+                                
+                                <div class="row mt-4">
+                                    <div class="col-md-6">
+                                        <div class="card mb-4">
+                                            <div class="card-header">
+                                                <h6>OAuth Configuration</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <form id="settings-form">
+                                                    <div class="mb-3">
+                                                        <label for="settings-client-id" class="form-label">Client ID</label>
+                                                        <input type="text" class="form-control" id="settings-client-id">
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="settings-client-secret" class="form-label">Client Secret</label>
+                                                        <input type="password" class="form-control" id="settings-client-secret">
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="settings-redirect-uri" class="form-label">Redirect URI</label>
+                                                        <input type="text" class="form-control" id="settings-redirect-uri">
+                                                    </div>
+                                                    <div class="form-check mb-3">
+                                                        <input class="form-check-input" type="radio" name="settings-environment" id="settings-sandbox" value="sandbox">
+                                                        <label class="form-check-label" for="settings-sandbox">
+                                                            Sandbox
+                                                        </label>
+                                                    </div>
+                                                    <div class="form-check mb-3">
+                                                        <input class="form-check-input" type="radio" name="settings-environment" id="settings-production" value="production">
+                                                        <label class="form-check-label" for="settings-production">
+                                                            Production
+                                                        </label>
+                                                    </div>
+                                                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card mb-4">
+                                            <div class="card-header">
+                                                <h6>Application Preferences</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <form id="preferences-form">
+                                                    <div class="mb-3">
+                                                        <label for="auto-refresh" class="form-label">Token Auto-Refresh Interval (minutes)</label>
+                                                        <input type="number" class="form-control" id="auto-refresh" min="5" max="50" value="30">
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Data Display Options</label>
+                                                        <div class="form-check form-switch">
+                                                            <input class="form-check-input" type="checkbox" id="show-ids" checked>
+                                                            <label class="form-check-label" for="show-ids">Show IDs in Lists</label>
+                                                        </div>
+                                                        <div class="form-check form-switch">
+                                                            <input class="form-check-input" type="checkbox" id="auto-load-dashboard" checked>
+                                                            <label class="form-check-label" for="auto-load-dashboard">Auto-load Dashboard</label>
+                                                        </div>
+                                                        <div class="form-check form-switch">
+                                                            <input class="form-check-input" type="checkbox" id="remember-last-project">
+                                                            <label class="form-check-label" for="remember-last-project">Remember Last Selected Project</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label for="date-format" class="form-label">Date Format</label>
+                                                        <select class="form-select" id="date-format">
+                                                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                                                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                                        </select>
+                                                    </div>
+                                                    <button type="submit" class="btn btn-primary">Save Preferences</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6>Advanced Options</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="d-grid gap-2">
+                                                    <button id="clear-storage" class="btn btn-outline-danger">Clear All Stored Data</button>
+                                                    <button id="export-settings" class="btn btn-outline-secondary">Export Settings</button>
+                                                    <button id="test-connection" class="btn btn-outline-primary">Test API Connection</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1372,512 +543,13 @@ const createSampleProjectBtn = document.getElementById('create-sample-project');
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // DOM elements
-            const oauthForm = document.getElementById('oauth-form');
-            const loginSection = document.getElementById('login-section');
-            const loadingSection = document.getElementById('loading-section');
-            const tokenSection = document.getElementById('token-section');
-            const dataSection = document.getElementById('data-section');
-            const projectsList = document.getElementById('projects-list');
-            const companiesList = document.getElementById('companies-list');
-            const usersList = document.getElementById('users-list');
-            const tasksList = document.getElementById('tasks-list');
-            const projectSelect = document.getElementById('project-select');
-            const accessTokenDisplay = document.getElementById('access-token');
-            const viewDataBtn = document.getElementById('view-data');
-            const fetchProjectsBtn = document.getElementById('fetch-projects');
-            const fetchCompaniesBtn = document.getElementById('fetch-companies');
-            const fetchUsersBtn = document.getElementById('fetch-users');
-            const fetchTasksBtn = document.getElementById('fetch-tasks');
-            const refreshTokenBtn = document.getElementById('refresh-token');
-            const logoutBtn = document.getElementById('logout');
-            const errorCard = document.getElementById('error-card');
-            const errorMessage = document.getElementById('error-message');
-            const backToLoginBtn = document.getElementById('back-to-login');
-
-            // Check for an authorization code in the URL (after redirect from Procore)
-            const urlParams = new URLSearchParams(window.location.search);
-            const authCode = urlParams.get('code');
-            const error = urlParams.get('error');
-
-            // Load stored tokens if available
-            let tokenData = JSON.parse(localStorage.getItem('procoreTokens'));
-            
-            // OAuth configuration
-            let oauthConfig = JSON.parse(localStorage.getItem('procoreConfig')) || {
-                clientId: '',
-                clientSecret: '',
-                redirectUri: 'http://localhost:8000/callback',
-                environment: 'sandbox'
-            };
-
-            // Update form fields with saved config
-            document.getElementById('client-id').value = oauthConfig.clientId;
-            document.getElementById('client-secret').value = oauthConfig.clientSecret;
-            document.getElementById('redirect-uri').value = oauthConfig.redirectUri;
-            if (oauthConfig.environment === 'production') {
-                document.getElementById('production').checked = true;
-            } else {
-                document.getElementById('sandbox').checked = true;
-            }
-
-            // Helper function to get the base URL based on environment
-            function getBaseUrl() {
-                return oauthConfig.environment === 'production' 
-                    ? 'https://api.procore.com' 
-                    : 'https://sandbox.procore.com';
-            }
-
-            // Helper function to show an error
-            function showError(message) {
-                errorMessage.textContent = message;
-                errorCard.classList.remove('hidden');
-                loginSection.classList.add('hidden');
-                loadingSection.classList.add('hidden');
-                tokenSection.classList.add('hidden');
-                dataSection.classList.add('hidden');
-            }
-
-            // Handle OAuth form submission
-            oauthForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                // Get form values
-                const clientId = document.getElementById('client-id').value.trim();
-                const clientSecret = document.getElementById('client-secret').value.trim();
-                const redirectUri = document.getElementById('redirect-uri').value.trim();
-                const environment = document.querySelector('input[name="environment"]:checked').value;
-                
-                // Validate
-                if (!clientId || !clientSecret || !redirectUri) {
-                    showError('Please fill in all required fields.');
-                    return;
-                }
-
-                // Save config
-                oauthConfig = {
-                    clientId,
-                    clientSecret,
-                    redirectUri,
-                    environment
-                };
-                localStorage.setItem('procoreConfig', JSON.stringify(oauthConfig));
-
-                // Redirect to Procore authorization endpoint
-                const authUrl = `${getBaseUrl()}/oauth/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
-                window.location.href = authUrl;
-            });
-
-            // Exchange authorization code for tokens
-            async function exchangeCodeForTokens(code) {
-                loadingSection.classList.remove('hidden');
-                loginSection.classList.add('hidden');
-
-                try {
-                    const tokenUrl = `${getBaseUrl()}/oauth/token`;
-                    const response = await fetch(tokenUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            grant_type: 'authorization_code',
-                            code: code,
-                            client_id: oauthConfig.clientId,
-                            client_secret: oauthConfig.clientSecret,
-                            redirect_uri: oauthConfig.redirectUri
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (data.error) {
-                        throw new Error(data.error_description || 'Failed to obtain access token');
-                    }
-
-                    // Store tokens
-                    tokenData = {
-                        accessToken: data.access_token,
-                        refreshToken: data.refresh_token,
-                        expiresAt: Date.now() + (data.expires_in * 1000)
-                    };
-                    localStorage.setItem('procoreTokens', JSON.stringify(tokenData));
-
-                    // Show token section
-                    displayToken();
-                } catch (error) {
-                    showError(`Authentication error: ${error.message}`);
-                } finally {
-                    loadingSection.classList.add('hidden');
-                }
-            }
-
-            // Refresh access token
-            async function refreshAccessToken() {
-                if (!tokenData?.refreshToken) {
-                    showError('No refresh token available');
-                    return;
-                }
-
-                loadingSection.classList.remove('hidden');
-                tokenSection.classList.add('hidden');
-                dataSection.classList.add('hidden');
-
-                try {
-                    const tokenUrl = `${getBaseUrl()}/oauth/token`;
-                    const response = await fetch(tokenUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            grant_type: 'refresh_token',
-                            refresh_token: tokenData.refreshToken,
-                            client_id: oauthConfig.clientId,
-                            client_secret: oauthConfig.clientSecret
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (data.error) {
-                        throw new Error(data.error_description || 'Failed to refresh token');
-                    }
-
-                    // Update stored tokens
-                    tokenData = {
-                        accessToken: data.access_token,
-                        refreshToken: data.refresh_token || tokenData.refreshToken,
-                        expiresAt: Date.now() + (data.expires_in * 1000)
-                    };
-                    localStorage.setItem('procoreTokens', JSON.stringify(tokenData));
-
-                    // Show updated token
-                    displayToken();
-                } catch (error) {
-                    showError(`Token refresh error: ${error.message}`);
-                } finally {
-                    loadingSection.classList.add('hidden');
-                }
-            }
-
-            // Display token information
-            function displayToken() {
-                if (!tokenData?.accessToken) {
-                    return;
-                }
-
-                // Show token section
-                loginSection.classList.add('hidden');
-                loadingSection.classList.add('hidden');
-                tokenSection.classList.remove('hidden');
-                
-                // Display token (first 15 chars)
-                const tokenPreview = tokenData.accessToken.substring(0, 15) + '...';
-                accessTokenDisplay.textContent = tokenPreview;
-                
-                // If auto-load dashboard is enabled, go straight to data section
-                if (appPreferences.autoLoadDashboard) {
-                    // Programmatically click the view data button
-                    viewDataBtn.click();
-                    // Load dashboard data
-                    setTimeout(() => {
-                        document.getElementById('dashboard-tab').click();
-                        updateDashboard();
-                    }, 500);
-                }
-            }
-
-            // Generic API request function with token validation
-            async function apiRequest(endpoint, options = {}) {
-                if (!tokenData?.accessToken) {
-                    showError('No access token available');
-                    return null;
-                }
-
-                // Check if token has expired
-                if (tokenData.expiresAt && Date.now() > tokenData.expiresAt) {
-                    await refreshAccessToken();
-                    if (!tokenData?.accessToken) {
-                        return null;
-                    }
-                }
-
-                loadingSection.classList.remove('hidden');
-
-                try {
-                    const url = `${getBaseUrl()}${endpoint}`;
-                    const requestOptions = {
-                        headers: {
-                            'Authorization': `Bearer ${tokenData.accessToken}`,
-                            'Content-Type': 'application/json',
-                            ...options.headers
-                        },
-                        ...options
-                    };
-
-                    const response = await fetch(url, requestOptions);
-
-                    if (!response.ok) {
-                        if (response.status === 401) {
-                            // Token expired or invalid
-                            await refreshAccessToken();
-                            // Retry the request
-                            return apiRequest(endpoint, options);
-                        }
-                        throw new Error(`API request failed with status ${response.status}`);
-                    }
-
-                    return await response.json();
-                } catch (error) {
-                    showError(`API error: ${error.message}`);
-                    return null;
-                } finally {
-                    loadingSection.classList.add('hidden');
-                }
-            }
-
-            // Fetch projects from Procore
-            async function fetchProjects() {
-                const projects = await apiRequest('/rest/v1.0/projects');
-                if (!projects) return;
-                
-                // Clear previous project list
-                projectsList.innerHTML = '';
-                
-                // Also update the project select dropdown
-                projectSelect.innerHTML = '<option selected value="">Choose a project...</option>';
-                
-                if (projects.length === 0) {
-                    projectsList.innerHTML = '<p class="mt-3">No projects found.</p>';
-                } else {
-                    projects.forEach(project => {
-                // Add to projects list
-                        const item = document.createElement('a');
-                        item.className = 'list-group-item list-group-item-action';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between">
-                                <h5 class="mb-1">${project.name}</h5>
-                                <small>ID: ${project.id}</small>
-                            </div>
-                            <p class="mb-1">${project.address || 'No address'}</p>
-                            <small>${project.status || 'Unknown status'}</small>
-                        `;
-                        projectsList.appendChild(item);
-                        
-                        // Add to project select dropdowns
-                        const option = document.createElement('option');
-                        option.value = project.id;
-                        option.textContent = project.name;
-                        projectSelect.appendChild(option);
-                        
-                        const fileOption = document.createElement('option');
-                        fileOption.value = project.id;
-                        fileOption.textContent = project.name;
-                        fileProjectSelect.appendChild(fileOption);
-                    });
-                }
-                
-                dataSection.classList.remove('hidden');
-            }
-            
-            // Fetch companies from Procore
-            async function fetchCompanies() {
-                const companies = await apiRequest('/rest/v1.0/companies');
-                if (!companies) return;
-                
-                companiesList.innerHTML = '';
-                if (companies.length === 0) {
-                    companiesList.innerHTML = '<p class="mt-3">No companies found.</p>';
-                } else {
-                    companies.forEach(company => {
-                        const item = document.createElement('a');
-                        item.className = 'list-group-item list-group-item-action';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between">
-                                <h5 class="mb-1">${company.name}</h5>
-                                <small>ID: ${company.id}</small>
-                            </div>
-                            <p class="mb-1">Country: ${company.country_code || 'Not specified'}</p>
-                            <small>Phone: ${company.phone || 'Not provided'}</small>
-                        `;
-                        companiesList.appendChild(item);
-                    });
-                }
-                
-                dataSection.classList.remove('hidden');
-            }
-            
-            // Fetch users from Procore
-            async function fetchUsers() {
-                const users = await apiRequest('/rest/v1.0/users');
-                if (!users) return;
-                
-                usersList.innerHTML = '';
-                if (users.length === 0) {
-                    usersList.innerHTML = '<p class="mt-3">No users found.</p>';
-                } else {
-                    users.forEach(user => {
-                        const item = document.createElement('a');
-                        item.className = 'list-group-item list-group-item-action';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between">
-                                <h5 class="mb-1">${user.name}</h5>
-                                <small>ID: ${user.id}</small>
-                            </div>
-                            <p class="mb-1">Email: ${user.email || 'No email'}</p>
-                            <small>Role: ${user.employee_type || 'Not specified'}</small>
-                        `;
-                        usersList.appendChild(item);
-                    });
-                }
-                
-                dataSection.classList.remove('hidden');
-            }
-            
-            // Fetch tasks from Procore
-            async function fetchTasks() {
-                const projectId = projectSelect.value;
-                if (!projectId) {
-                    showError('Please select a project first');
-                    return;
-                }
-                
-                rememberProject(projectId);
-                
-                const tasks = await apiRequest(`/rest/v1.0/projects/${projectId}/tasks`);
-                if (!tasks) return;
-                
-                tasksList.innerHTML = '';
-                if (tasks.length === 0) {
-                    tasksList.innerHTML = '<p class="mt-3">No tasks found for this project.</p>';
-                } else {
-                    tasks.forEach(task => {
-                        const item = document.createElement('a');
-                        item.className = 'list-group-item list-group-item-action';
-                        item.innerHTML = `
-                            <div class="d-flex w-100 justify-content-between">
-                                <h5 class="mb-1">${task.name || 'Unnamed Task'}</h5>
-                                <small ${!appPreferences.showIds ? 'style="display:none"' : ''}>ID: ${task.id}</small>
-                            </div>
-                            <p class="mb-1">Status: ${task.status || 'No status'}</p>
-                            <div>
-                                <small class="me-2">Start: ${formatDate(task.start_date) || 'Not set'}</small>
-                                <small>End: ${formatDate(task.end_date) || 'Not set'}</small>
-                            </div>
-                        `;
-                        tasksList.appendChild(item);
-                    });
-                }
-                
-                dataSection.classList.remove('hidden');
-            }
-
-            // Logout function
-            function logout() {
-                localStorage.removeItem('procoreTokens');
-                tokenData = null;
-                
-                // Clear all data lists
-                projectsList.innerHTML = '';
-                companiesList.innerHTML = '';
-                usersList.innerHTML = '';
-                tasksList.innerHTML = '';
-                projectSelect.innerHTML = '<option selected value="">Choose a project...</option>';
-                
-                // Reset UI state
-                tokenSection.classList.add('hidden');
-                dataSection.classList.add('hidden');
-                loginSection.classList.remove('hidden');
-                
-                // Clear the URL parameters
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-
-            // Button click handlers
-            viewDataBtn.addEventListener('click', function() {
-                tokenSection.classList.add('hidden');
-                dataSection.classList.remove('hidden');
-            });
-            fetchProjectsBtn.addEventListener('click', fetchProjects);
-            fetchCompaniesBtn.addEventListener('click', fetchCompanies);
-            fetchUsersBtn.addEventListener('click', fetchUsers);
-            fetchTasksBtn.addEventListener('click', fetchTasks);
-            fetchFilesBtn.addEventListener('click', fetchFiles);
-            refreshTokenBtn.addEventListener('click', refreshAccessToken);
-            logoutBtn.addEventListener('click', logout);
-            backToLoginBtn.addEventListener('click', function() {
-                errorCard.classList.add('hidden');
-                loginSection.classList.remove('hidden');
-            });ProjectsBtn.addEventListener('click', fetchProjects);
-            fetchCompaniesBtn.addEventListener('click', fetchCompanies);
-            fetchUsersBtn.addEventListener('click', fetchUsers);
-            fetchTasksBtn.addEventListener('click', fetchTasks);
-            refreshTokenBtn.addEventListener('click', refreshAccessToken);
-            logoutBtn.addEventListener('click', logout);
-            backToLoginBtn.addEventListener('click', function() {
-                errorCard.classList.add('hidden');
-                loginSection.classList.remove('hidden');
-            });
-            
-            // Project select change handlers
-            projectSelect.addEventListener('change', function() {
-                fetchTasksBtn.disabled = !this.value;
-                if (this.value) {
-                    rememberProject(this.value);
-                }
-            });
-            
-            fileProjectSelect.addEventListener('change', function() {
-                fetchFilesBtn.disabled = !this.value;
-                uploadFileBtn.disabled = !this.value;
-                if (this.value) {
-                    rememberProject(this.value);
-                }
-            });
-            
-            // Create Project form submission
-            createProjectForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                await createProject();
-            });
-            
-            // Upload File form submission
-            uploadFileForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                await uploadFile();
-            });
-            
-            // Refresh dashboard button
-            refreshDashboardBtn.addEventListener('click', updateDashboard);
-
-            // Process auth code if present in URL
-            if (authCode) {
-                exchangeCodeForTokens(authCode);
-                // Clean up the URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-            } else if (error) {
-                showError(`Authorization error: ${error}`);
-                // Clean up the URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-            } else if (tokenData?.accessToken) {
-                // Show token section if we have a stored token
-                displayToken();
-                
-                // Initialize forms
-                initializeSettingsForm();
-                initializePreferencesForm();
-                
-                // Apply preferences
-                applyPreferences();
-                
-                // Load last selected project if enabled
-                loadLastProject();
-            } else {
-                // Initialize settings form with saved config
-                initializeSettingsForm();
-            }
-        });
-    </script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/projects.js"></script>
+    <script src="js/files.js"></script>
+    <script src="js/webhooks.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>

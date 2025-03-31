@@ -1,0 +1,117 @@
+/* Main styles */
+.container {
+    max-width: 800px;
+    margin-top: 50px;
+}
+
+/* Utility classes */
+.hidden {
+    display: none;
+}
+
+/* Card styling */
+.card {
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    font-weight: 500;
+}
+
+/* Procore branding colors */
+.procore-primary {
+    background-color: #f47e42;
+    color: white;
+}
+
+.procore-secondary {
+    background-color: #444444;
+    color: white;
+}
+
+/* Code display */
+pre {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    overflow-x: auto;
+    max-height: 150px;
+}
+
+/* Loading animation */
+.loader {
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #0d6efd;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 2s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Dashboard stats cards */
+#stats-container .card {
+    transition: transform 0.3s ease;
+}
+
+#stats-container .card:hover {
+    transform: translateY(-5px);
+}
+
+/* Lists */
+.list-group-item {
+    transition: background-color 0.2s ease;
+}
+
+.list-group-item:hover {
+    background-color: rgba(244, 126, 66, 0.1);
+}
+
+/* Form styling */
+.form-control:focus {
+    border-color: #f47e42;
+    box-shadow: 0 0 0 0.25rem rgba(244, 126, 66, 0.25);
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: #f47e42;
+    border-color: #e05c12;
+}
+
+.btn-primary:hover, .btn-primary:focus {
+    background-color: #e05c12;
+    border-color: #c44e0c;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        margin-top: 20px;
+    }
+    
+    #stats-container .col-md-3 {
+        margin-bottom: 15px;
+    }
+}
+
+/* Tab styling */
+.nav-tabs .nav-link {
+    color: #444;
+}
+
+.nav-tabs .nav-link.active {
+    color: #f47e42;
+    font-weight: 500;
+}
+
+/* Chart containers */
+canvas {
+    max-width: 100%;
+}
